@@ -2,8 +2,8 @@
 set -e
 
 #Setup common variables
-export ARCH=arm
-export CROSS_COMPILE=arm-linux-gnueabi-
+#export ARCH=arm
+#export CROSS_COMPILE=arm-linux-gnueabi-
 export AS=${CROSS_COMPILE}as
 export LD=${CROSS_COMPILE}ld
 export CC=${CROSS_COMPILE}gcc
@@ -14,7 +14,7 @@ export OBJCOPY=${CROSS_COMPILE}objcopy
 export OBJDUMP=${CROSS_COMPILE}objdump
 export LOCALVERSION=""
 
-KERNEL_VERSION="3.8"
+#KERNEL_VERSION="3.8"
 LICHEE_KDIR=`pwd`
 LICHEE_MOD_DIR==${LICHEE_KDIR}/output/lib/modules/${KERNEL_VERSION}
 
@@ -107,12 +107,6 @@ build_kernel()
 		cp arch/arm/configs/sun6ismp_defconfig .config
 	fi
 
-	#try to remove csi drivers
-	#rm -rf ${LICHEE_KDIR}/drivers/media/video/sunxi_csi/device/*.ko
-	#rm -rf ${LICHEE_KDIR}/drivers/media/video/sunxi_csi/device/*.o
-	#rm -rf ${LICHEE_KDIR}/drivers/media/video/sunxi-vfe/device/*.ko
-	#rm -rf ${LICHEE_KDIR}/drivers/media/video/sunxi-vfe/device/*.o
-
 	#build_standby
 	#build_mdfs
 	make ARCH=arm CROSS_COMPILE=${CROSS_COMPILE} -j8 uImage modules
@@ -149,7 +143,7 @@ build_kernel()
 
 build_modules()
 {
-	echo "Building modules"
+	echo "Building modules:)"
 
 	if [ ! -f include/generated/utsrelease.h ]; then
 		printf "Please build kernel first!\n"
@@ -158,43 +152,18 @@ build_modules()
 
 	update_kern_ver
 
-	make -C modules/example LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LICHEE_KDIR=${LICHEE_KDIR} \
-		CONFIG_CHIP_ID=${CONFIG_CHIP_ID} install
+	make -C modules/eurasia_km/eurasiacon/build/linux2/sunxi_android LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LICHEE_KDIR=${LICHEE_KDIR}
+	
+	for file in $(find  modules/eurasia_km -name "*.ko"); do
+	cp $file ${LICHEE_MOD_DIR}
+	done
 
 	build_nand_lib
+	#make -C modules/eurasia_km/eurasiacon/build/linux2/sunxi_android LICHEE_MOD_DIR=`pwd` LICHEE_KDIR=`pwd`
 	make -C modules/nand LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LICHEE_KDIR=${LICHEE_KDIR} \
 		CONFIG_CHIP_ID=${CONFIG_CHIP_ID} install
 	copy_nand_mod
-#	(
-#	export LANG=en_US.UTF-8
-#	unset LANGUAGE
-#	make -C modules/mali LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LICHEE_KDIR=${LICHEE_KDIR} \
-#		CONFIG_CHIP_ID=${CONFIG_CHIP_ID} install
-#	)
 
-#	#build ar6302 sdio wifi module
-#	make -C modules/wifi/ar6302/AR6K_SDK_ISC.build_3.1_RC.329/host CROSS_COMPILE=${CROSS_COMPILE} \
-#	        ARCH=arm KERNEL_DIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} INSTALL_DIR=${LICHEE_MOD_DIR} \
-#	        all install
-#	#build ar6003 sdio wifi module
-#	make -C modules/wifi/ar6003/AR6kSDK.build_3.1_RC.514/host CROSS_COMPILE=${CROSS_COMPILE} \
-#	        ARCH=arm KERNEL_DIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} INSTALL_DIR=${LICHEE_MOD_DIR} \
-#	        all
-#	#build usi-bmc4329 sdio wifi module
-#	make -C modules/wifi/usi-bcm4329/v4.218.248.15/open-src/src/dhd/linux \
-#		CROSS_COMPILE=${CROSS_COMPILE} ARCH=arm LINUXVER=${KERNEL_VERSION} \
-#		LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LINUXDIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} \
-#		INSTALL_DIR=${LICHEE_MOD_DIR} dhd-cdc-sdmmc-gpl
-#	#build bcm40181 sdio wifi module 5.90.125.69.2
-#	make -C modules/wifi/bcm40181/5.90.125.69.2/open-src/src/dhd/linux \
-#		CROSS_COMPILE=${CROSS_COMPILE} ARCH=arm LINUXVER=${KERNEL_VERSION} \
-#		LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LINUXDIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} \
-#		INSTALL_DIR=${LICHEE_MOD_DIR} OEM_ANDROID=1 dhd-cdc-sdmmc-gpl
-#	#build bcm40183 sdio wifi module
-#	make -C modules/wifi/bcm40183/5.90.125.95.3/open-src/src/dhd/linux \
-#		CROSS_COMPILE=${CROSS_COMPILE} ARCH=arm LINUXVER=${KERNEL_VERSION} \
-#		LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LINUXDIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} \
-#		INSTALL_DIR=${LICHEE_MOD_DIR} OEM_ANDROID=1 dhd-cdc-sdmmc-gpl
 }
 
 build_ramfs()
@@ -230,31 +199,8 @@ clean_kernel()
 clean_modules()
 {
 	echo "Cleaning modules"
-	make -C modules/example LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LICHEE_KDIR=${LICHEE_KDIR} clean
+	make -C modules/eurasia_km/eurasiacon/build/linux2/sunxi_android LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LICHEE_KDIR=${LICHEE_KDIR} clean
 
-#	#build ar6302 sdio wifi module
-#	make -C modules/wifi/ar6302/AR6K_SDK_ISC.build_3.1_RC.329/host CROSS_COMPILE=${CROSS_COMPILE} \
-#	        ARCH=arm KERNEL_DIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} INSTALL_DIR=${LICHEE_MOD_DIR} \
-#	        clean
-#	#build ar6003 sdio wifi module
-#	make -C modules/wifi/ar6003/AR6kSDK.build_3.1_RC.514/host CROSS_COMPILE=${CROSS_COMPILE} \
-#	        ARCH=arm KERNEL_DIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} INSTALL_DIR=${LICHEE_MOD_DIR} \
-#	        clean
-#	#build usi-bmc4329 sdio wifi module
-#	make -C modules/wifi/usi-bcm4329/v4.218.248.15/open-src/src/dhd/linux \
-#		CROSS_COMPILE=${CROSS_COMPILE} ARCH=arm LINUXVER=${KERNEL_VERSION} \
-#		LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LINUXDIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} \
-#		INSTALL_DIR=${LICHEE_MOD_DIR} clean
-#	#build bcm40181 sdio wifi module 5.90.125.69.2
-#	make -C modules/wifi/bcm40181/5.90.125.69.2/open-src/src/dhd/linux \
-#		CROSS_COMPILE=${CROSS_COMPILE} ARCH=arm LINUXVER=${KERNEL_VERSION} \
-#		LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LINUXDIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} \
-#		INSTALL_DIR=${LICHEE_MOD_DIR} clean
-#	#build bcm40183 sdio wifi module
-#	make -C modules/wifi/bcm40183/5.90.125.95.3/open-src/src/dhd/linux \
-#		CROSS_COMPILE=${CROSS_COMPILE} ARCH=arm LINUXVER=${KERNEL_VERSION} \
-#		LICHEE_MOD_DIR=${LICHEE_MOD_DIR} LINUXDIR=${LICHEE_KDIR} CONFIG_CHIP_ID=${CONFIG_CHIP_ID} \
-#		INSTALL_DIR=${LICHEE_MOD_DIR} OEM_ANDROID=1 clean
 }
 
 #####################################################################
@@ -273,14 +219,17 @@ kernel)
 modules)
 	build_modules
 	;;
+clean-pvr)
+	clean_modules
+	;;
 clean)
 	clean_kernel
 	clean_modules
 	;;
 all)
 	build_kernel
-	#build_modules
-	build_ramfs
+	build_modules
+	#build_ramfs
 	;;
 *)
 	show_help
