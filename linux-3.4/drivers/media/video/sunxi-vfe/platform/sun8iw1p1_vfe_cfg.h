@@ -24,6 +24,7 @@
 #define VFE_CSI_REGULATOR				""
 
 #define CSI0_REGS_BASE          				0x01cb0000
+#define CSI0_CCI_REG_BASE          			0x01cb0000
 #define CSI1_REGS_BASE          				0x01cb3000
 #define ISP_REGS_BASE           				0x01cb8000
 #define GPIO_REGS_VBASE					0xf1c20800
