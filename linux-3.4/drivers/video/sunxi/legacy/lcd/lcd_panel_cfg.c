@@ -7,6 +7,7 @@ void LCD_set_panel_funs(void)
 
 	for(i=0; panel_array[i] != NULL; i++) {
 		sunxi_lcd_set_panel_funs(panel_array[i]->name, &panel_array[i]->func);
+		printk("LCD: Init set_panel_funcs: %s\n", panel_array[i]->name);
 	}
 
 	return ;

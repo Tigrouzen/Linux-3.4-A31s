@@ -79,8 +79,8 @@ typedef union
 		__u32 video_frame_start          :  1 ;    // default: 0;
 		__u32 video_precision_mode_align :  1 ;    // default: 0;
 		__u32 res0                       :  1 ;    // default: ;
-		__u32 video_start_delay          : 13 ;    // default: 0;
-		__u32 res1                       : 15 ;    // default: 0;
+		__u32 video_start_delay          :  8 ;    // default: 0;
+		__u32 res1                       : 20 ;    // default: 0;
 	} bits;
 } dsi_basic_ctl1_reg_t;
 

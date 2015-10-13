@@ -196,7 +196,7 @@ __s32 disp_mipipll_init(void)
 	MipiPllCtl->Ldo2En = 0;
 	MipiPllCtl->Ldo1En = 1;
 	MipiPllCtl->Ldo2En = 1;
-	MipiPllCtl->PllSrc = 0; //pll3
+	MipiPllCtl->PllSrc = 1; //pll7
 	MipipllBias->pllvdd_ldo_out_ctrl = 0x7; //1.45v
 	msleep(2);
 	MipiPllCtl->PLLEn = 1;

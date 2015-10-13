@@ -586,9 +586,9 @@ __s32 DE_BE_Set_Enhance_ex(__u8 sel, __u32 out_csc, __u32 out_color_range, __u32
 	__s32 i;
 	__scal_matrix4x4 tmpcoeff;
     
-	brightness = brightness>100?100:brightness;
-	contrast = contrast>100?100:contrast;
-	saturaion = saturaion>100?100:saturaion;
+	brightness = brightness>100?100:(brightness<0?0:brightness);
+	contrast = contrast>100?100:(contrast<0?0:contrast);
+	saturaion = saturaion>100?100:(saturaion<0?0:saturaion);
 
 	i_bright = (__s32)(brightness*64/100);
 	i_saturaion = (__s32)(saturaion*64/100);
