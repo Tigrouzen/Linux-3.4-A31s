@@ -1334,7 +1334,7 @@ PVRSRV_ERROR PVRSRVCreateDCSwapChainKM (PVRSRV_PER_PROCESS_DATA	*psPerProc,
 	OSMemSet (psSwapChain, 0, sizeof(PVRSRV_DC_SWAPCHAIN));
 
 	/* Create a command queue for the swapchain	*/
-	eError = PVRSRVCreateCommandQueueKM(1024, &psQueue);
+	eError = PVRSRVCreateCommandQueueKM(PVRSRV_MAX_CMD_SIZE, &psQueue);
 	if(eError != PVRSRV_OK)
 	{
 		PVR_DPF((PVR_DBG_ERROR,"PVRSRVCreateDCSwapChainKM: Failed to create CmdQueue"));
@@ -1777,12 +1777,8 @@ static IMG_VOID FreePrivateData(IMG_HANDLE hCallbackData)
 {
 	CALLBACK_DATA *psCallbackData = hCallbackData;
 
-	if(psCallbackData->ui32PrivDataLength)
-	{
-		OSFreeMem(PVRSRV_OS_PAGEABLE_HEAP, psCallbackData->ui32PrivDataLength,
-				  psCallbackData->pvPrivData, IMG_NULL);
-	}
-
+	OSFreeMem(PVRSRV_OS_PAGEABLE_HEAP, psCallbackData->ui32PrivDataLength,
+			  psCallbackData->pvPrivData, IMG_NULL);
 	OSFreeMem(PVRSRV_OS_PAGEABLE_HEAP,
 			  sizeof(IMG_VOID *) * psCallbackData->ui32NumMemInfos,
 			  psCallbackData->ppvMemInfos, IMG_NULL);

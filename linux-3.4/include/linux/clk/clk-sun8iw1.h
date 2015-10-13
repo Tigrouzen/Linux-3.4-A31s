@@ -15,8 +15,10 @@
 #define PLL4_CLK "pll4"
 #define PLL5_CLK "pll5"
 #define PLL6_CLK "pll6"
+#define PLL_PERIPH_CLK PLL6_CLK
 #define PLL7_CLK "pll7"
 #define PLL8_CLK "pll8"
+#define PLL_GPU_CLK PLL8_CLK
 #define PLL9_CLK "pll9"
 #define PLL10_CLK "pll10"
 #define PLL_MIPI_CLK "pll_mipi"
@@ -57,6 +59,7 @@
 #define DEFE0_CLK "defe0"
 #define DEFE1_CLK "defe1"
 #define MP_CLK "mp"
+#define AHB_CLK_GPU "ahb_gpu"
 #define LCD0CH0_CLK "lcd0ch0"
 #define LCD0CH1_CLK "lcd0ch1"
 #define LCD1CH0_CLK "lcd1ch0"

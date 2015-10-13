@@ -55,7 +55,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "img_defs.h"
 #include "servicesext.h"
 #include "kerneldisplay.h"
-#include "linux/drv_display.h"
+#include "video/drv_display_legacy.h"
 
 #if defined(SUPPORT_DRI_DRM)
 #include "pvr_drm.h"
@@ -1237,7 +1237,7 @@ static IMG_BOOL ProcessFlipV2(IMG_HANDLE hCmdCookie,
 		return IMG_TRUE;
 	}
 
-	if(ui32DispcDataLength != sizeof(setup_dispc_data_t))
+/*	if(ui32DispcDataLength != sizeof(setup_dispc_data_t))
 	{
 		printk(KERN_WARNING DRIVER_PREFIX
 			   ": %s: Device %u: WARNING: Unexpected private data size, %u vs %u.",
@@ -1246,7 +1246,7 @@ static IMG_BOOL ProcessFlipV2(IMG_HANDLE hCmdCookie,
 		gapsDevInfo[0]->sPVRJTable.pfnPVRSRVCmdComplete(hCmdCookie, IMG_TRUE);
 		return IMG_TRUE;
 	}
-
+*/
 	if(DontWaitForVSync(psDevInfo))
 	{
 		gapsDevInfo[0]->sPVRJTable.pfnPVRSRVCmdComplete(hCmdCookie, IMG_TRUE);

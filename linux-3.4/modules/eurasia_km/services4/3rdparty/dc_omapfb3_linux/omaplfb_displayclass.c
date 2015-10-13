@@ -968,7 +968,10 @@ void OMAPLFBSwapHandler(OMAPLFB_BUFFER *psBuffer)
 				if (bPreviouslyNotVSynced || psSwapChain->iBlankEvents != iBlankEvents)
 				{
 					psSwapChain->iBlankEvents = iBlankEvents;
-					psSwapChain->bNotVSynced = !WaitForVSyncSettle(psDevInfo);
+					if (eMode == OMAPLFB_UPDATE_MODE_AUTO)
+					{
+						psSwapChain->bNotVSynced = !WaitForVSyncSettle(psDevInfo);
+					}
 				} else if (psBuffer->ulSwapInterval != 0)
 				{
 					psSwapChain->bNotVSynced = !OMAPLFBWaitForVSync(psDevInfo);

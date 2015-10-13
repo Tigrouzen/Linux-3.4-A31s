@@ -792,6 +792,7 @@ typedef struct
     //for screen0 and screen1
     __disp_output_type_t    output_type[2];
     __u32                   output_mode[2];
+    __disp_vga_mode_t       vga_mode[2];
 
     //for fb0 and fb1
     __u32                   buffer_num[2];

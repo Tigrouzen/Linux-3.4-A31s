@@ -25,6 +25,7 @@
 #define PLL6_CFG            0x0028
 #define PLL7_CFG            0x0030
 #define PLL8_CFG            0x0038
+#define PLL_GPU             PLL8_CFG
 #define MIPI_PLL            0x0040
 #define PLL9_CFG            0x0044
 #define PLL10_CFG           0x0048

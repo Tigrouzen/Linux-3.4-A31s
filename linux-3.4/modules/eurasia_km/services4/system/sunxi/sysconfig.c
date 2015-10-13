@@ -730,7 +730,7 @@ IMG_DEV_PHYADDR SysCpuPAddrToDevPAddr(PVRSRV_DEVICE_TYPE	eDeviceType,
 	PVR_UNREFERENCED_PARAMETER(eDeviceType);
 
 	/* Note: for UMA system we assume DevP == CpuP */
-	DevPAddr.uiAddr = CpuPAddr.uiAddr ;
+	DevPAddr.uiAddr = CpuPAddr.uiAddr - 0x40000000;
 	
 	return DevPAddr;
 }
@@ -802,7 +802,7 @@ IMG_DEV_PHYADDR SysSysPAddrToDevPAddr(PVRSRV_DEVICE_TYPE eDeviceType, IMG_SYS_PH
 	PVR_UNREFERENCED_PARAMETER(eDeviceType);
 	
 	/* Note: for UMA system we assume DevP == CpuP */
-	DevPAddr.uiAddr = SysPAddr.uiAddr;
+	DevPAddr.uiAddr = SysPAddr.uiAddr - 0x40000000;
 	
 	return DevPAddr;
 }
@@ -830,7 +830,7 @@ IMG_SYS_PHYADDR SysDevPAddrToSysPAddr(PVRSRV_DEVICE_TYPE eDeviceType, IMG_DEV_PH
 	PVR_UNREFERENCED_PARAMETER(eDeviceType);
 
 	/* Note: for UMA system we assume DevP == SysP */
-	SysPAddr.uiAddr = DevPAddr.uiAddr;
+	SysPAddr.uiAddr = DevPAddr.uiAddr + 0x40000000;
 	
 	return SysPAddr;
 }

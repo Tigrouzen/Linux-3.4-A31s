@@ -38,377 +38,33 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */ /**************************************************************************/
 
-#include <linux/mutex.h>
-#include <linux/platform_device.h>
-#include <linux/regulator/consumer.h>
+#include <linux/version.h>
 #include <linux/clk.h>
-#include <linux/clk/sunxi.h>
-#include <linux/clk/sunxi_name.h>
-#include <linux/clk-private.h>
-#include <linux/delay.h>
-#include <linux/stat.h>
-#include <mach/hardware.h>
-#include <mach/platform.h>
-#include <mach/sys_config.h>
-#include <mach/sunxi-smc.h>
-#ifdef CONFIG_CPU_BUDGET_THERMAL
-#include <linux/cpu_budget_cooling.h>
-#endif /* CONFIG_CPU_BUDGET_THERMAL */
+#include <linux/err.h>
+#include <linux/hardirq.h>
+#include <linux/mutex.h>
+#include <linux/slab.h>
 
+#include "sgxdefs.h"
 #include "services_headers.h"
 #include "sysinfo.h"
+#include "sgxapi_km.h"
 #include "sysconfig.h"
 #include "sgxinfokm.h"
 #include "syslocal.h"
 
-static struct clk *gpu_pll_clk         = NULL;
-static struct clk *gpu_core_clk        = NULL;
-static struct clk *gpu_mem_clk         = NULL;
-static struct clk *gpu_hyd_clk         = NULL;
-static struct regulator *sgx_regulator = NULL;
-static u32    dvfs_level               = 4;
-static u32    normal_level             = 4;
-static u32    dvfs_enable              = 1;
-static u32    dvfs_max_level           = 8;
-static struct mutex  dvfs_lock;
+#include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
+#include <mach/hardware.h>
+#include <mach/platform.h>
+#include <linux/clk/sunxi.h>
+#include <linux/clk/sunxi_name.h>
+
+static struct clk *h_gpu_coreclk, *h_gpu_hydclk, *h_gpu_memclk, *h_gpu_hydpll, *h_gpu_corepll;
+static struct regulator *gpu_power;
+
 extern struct platform_device *gpsPVRLDMDev;
-
-typedef struct
-{
-    u32 volt;
-    u32 freq;
-} volttable_t;
-
-static volttable_t vf_table[9] =
-{
-    {700, 252},
-    {740, 288},
-    {800, 456},
-    {840, 504},
-    {900, 624},
-    {940, 648},
-    {1000,672},
-    {1040,696},
-    {1100,744},
-};
-
-static int SetGpuVol(u32 vf_level)
-{
-	if(regulator_set_voltage(sgx_regulator, vf_table[vf_level].volt*1000, vf_table[vf_level].volt*1000) != 0)
-    {
-		PVR_DPF((PVR_DBG_ERROR, "Failed to set gpu power voltage!"));
-		return -1;
-    }
-	/* delay for gpu voltage stability */
-	udelay(20);
-	return 0;
-}
-
-static int SetGpuFreq(u32 vf_level)
-{
-	if(clk_set_rate(gpu_pll_clk, vf_table[vf_level].freq*1000*1000))
-    {
-		PVR_DPF((PVR_DBG_ERROR, "Failed to set gpu frequency!"));
-		return -1;
-    }
-	/* delay for gpu pll stability */
-	udelay(100);
-	return 0;
-}
-
-static void SGXDvfsChange(u32 vf_level)
-{
-	PVRSRV_ERROR err;
-	err = PVRSRVDevicePreClockSpeedChange(0, IMG_TRUE, NULL);
-	if(err == PVRSRV_OK)
-	{
-		if(vf_level < dvfs_level)
-		{
-			/* if changing to a lower level, reduce frequency firstly and then reduce voltage */
-			if(SetGpuFreq(vf_level))
-			{
-				goto post;
-			}
-			if(SetGpuVol(vf_level))
-			{
-				SetGpuFreq(dvfs_level);
-				goto post;
-			}
-		}
-		else if(vf_level > dvfs_level)
-		{
-			/* if changing to a higher level, reduce voltage firstly and then reduce frequency */
-			if(SetGpuVol(vf_level))
-			{
-				goto post;
-			}
-			if(SetGpuFreq(vf_level))
-			{
-				SetGpuVol(dvfs_level);
-				goto post;
-			}
-		}
-		else
-		{
-			/* here means the level to be is the same as dvfs_level, just do noting */
-			goto post;
-		}
-		
-		dvfs_level = vf_level;
-	post:
-		PVRSRVDevicePostClockSpeedChange(0, IMG_TRUE, NULL);		
-	}
-}
-
-#ifdef CONFIG_CPU_BUDGET_THERMAL
-static int sgx_throttle_notifier_call(struct notifier_block *nfb, unsigned long mode, void *cmd)
-{
-    int retval = NOTIFY_DONE;
-	
-	if(dvfs_enable == 0)
-	{
-		goto out;
-	}
-	
-	mutex_lock(&dvfs_lock);
-	if(mode == BUDGET_GPU_THROTTLE && dvfs_level > 0)
-    {
-        SGXDvfsChange(dvfs_level-1);
-    }
-	else if(cmd && (*(int *)cmd) == 0 && dvfs_level != normal_level)
-	{
-        SGXDvfsChange(normal_level);
-    }
-	mutex_unlock(&dvfs_lock);
-	
-out:
-    return retval;
-}
-static struct notifier_block sgx_throttle_notifier = {
-.notifier_call = sgx_throttle_notifier_call,
-};
-#endif /* CONFIG_CPU_BUDGET_THERMAL */
-
-static ssize_t android_dvfs_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    u32 cnt = 0,bufercnt = 0,ret = 0;
-    char s[2];
-    ret = sprintf(buf + bufercnt, "  vf_level voltage frequency\n");
-    while(cnt <= dvfs_max_level)
-    {
-        if(cnt == dvfs_level)
-        {
-           sprintf(s, "->");
-        }
-		else
-		{
-            sprintf(s, "  ");
-        }
-        bufercnt += ret;
-        ret = sprintf(buf+bufercnt, "%s   %1d     %4dmV   %3dMHz\n", s, cnt, vf_table[cnt].volt, vf_table[cnt].freq);
-        cnt++;
-    }
-
-    return bufercnt+ret;
-}
-
-static ssize_t android_dvfs_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{	
-    int err;
-    unsigned long vf_level;
-	
-	if(dvfs_enable == 0)
-	{
-		goto out;
-	}
-	
-    err = strict_strtoul(buf, 10, &vf_level);
-    if (err || vf_level > dvfs_max_level)
-    {
-		PVR_DPF((PVR_DBG_ERROR, "Invalid parameter!"));
-		return err;
-	}
-	mutex_lock(&dvfs_lock);
-	SGXDvfsChange((u32)vf_level);
-	mutex_unlock(&dvfs_lock);
-
-out:	
-	return count;
-}
-
-static ssize_t normal_dvfs_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	u32 cnt = 0,bufercnt = 0,ret = 0;
-    char s[2];
-    ret = sprintf(buf + bufercnt, "  vf_level voltage frequency\n");
-    while(cnt <= dvfs_max_level)
-    {
-        if(cnt == normal_level)
-        {
-           sprintf(s, "->");
-        }
-		else
-		{
-            sprintf(s, "  ");
-        }
-        bufercnt += ret;
-        ret = sprintf(buf+bufercnt, "%s   %1d     %4dmV   %3dMHz\n", s, cnt, vf_table[cnt].volt, vf_table[cnt].freq);
-        cnt++;
-    }
-
-	return bufercnt+ret;
-}
-
-static ssize_t normal_dvfs_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	int err;
-	unsigned long vf_level;	
-    err = strict_strtoul(buf, 10, &vf_level);
-    if (err || vf_level > dvfs_max_level)
-    {
-		PVR_DPF((PVR_DBG_ERROR, "Invalid parameter!"));
-		return err;
-	}
-	normal_level = (u32)vf_level;
-	
-	mutex_lock(&dvfs_lock);
-	SGXDvfsChange(normal_level);
-	mutex_unlock(&dvfs_lock);
-	
-	return count;
-}
-
-static ssize_t enable_dvfs_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	u32 ret = 0;
-	ret = sprintf(buf, "%d\n", dvfs_enable);
-	return ret;
-}
-
-static ssize_t enable_dvfs_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	int err;
-	unsigned long tmp;
-	err = strict_strtoul(buf, 10, &tmp);
-	if (err)
-    {
-		PVR_DPF((PVR_DBG_ERROR, "Invalid parameter!"));
-		return err;
-	}
-	
-	dvfs_enable = (tmp == 0 ? 0 : 1);
-	
-	return count;
-}
-
-static DEVICE_ATTR(android, S_IRUGO|S_IWUSR|S_IWGRP, android_dvfs_show, android_dvfs_store);
-
-static DEVICE_ATTR(normal, S_IRUGO|S_IWUSR|S_IWGRP, normal_dvfs_show, normal_dvfs_store);
-
-static DEVICE_ATTR(enable, S_IRUGO|S_IWUSR|S_IWGRP, enable_dvfs_show, enable_dvfs_store);
-
-static struct attribute *gpu_attributes[] =
-{
-	&dev_attr_android.attr,
-    &dev_attr_normal.attr,
-    &dev_attr_enable.attr,
-    NULL
-};
-
- struct attribute_group gpu_attribute_group = {
-  .name = "dvfs",
-  .attrs = gpu_attributes
-};
-
-static void ParseSysconfigFex(void)
-{
-    char vftbl_name[11] = {0};
-    u32 cnt, i=0, numberoftable, tmp;
-    script_item_u val;
-    script_item_value_type_e type;
-    numberoftable = sizeof(vf_table)/sizeof(volttable_t);
-	
-	type = script_get_item("gpu_dvfs_table", "G_dvfs_enable", &val);
-	if (SCIRPT_ITEM_VALUE_TYPE_INT == type)
-    {
-        dvfs_enable = (val.val == 0 ? 0 : 1);
-    }	
-	
-    type = script_get_item("gpu_dvfs_table", "G_LV_count", &val);
-    if (SCIRPT_ITEM_VALUE_TYPE_INT != type)
-    {
-        goto out;
-    }
-    cnt = val.val;
-    if (cnt <= 0 || cnt > numberoftable)
-    {
-        goto out;
-    }
-    for(i=0;i<cnt;i++)
-    {
-		/* get frequency config from sysconfig.fex */
-        sprintf(vftbl_name, "G_LV%d_freq",i);
-        type = script_get_item("gpu_dvfs_table", vftbl_name, &val);
-        if (SCIRPT_ITEM_VALUE_TYPE_INT != type)
-        {
-			PVR_DPF((PVR_DBG_WARNING, "Faile to get %s from sysconfig!", vftbl_name));
-            goto out;
-        }
-		
-		if(val.val < 0 || val.val > vf_table[numberoftable-1].freq)
-		{
-			goto out;
-		}
-		
-		tmp = val.val;
-		
-		/* get voltage config from sysconfig.fex */
-        sprintf(vftbl_name, "G_LV%d_volt",i);
-        type = script_get_item("gpu_dvfs_table", vftbl_name, &val);
-        if (SCIRPT_ITEM_VALUE_TYPE_INT != type)
-        {
-			PVR_DPF((PVR_DBG_WARNING, "Faile to get %s from sysconfig!", vftbl_name));
-            goto out;
-        }
-		
-		if(val.val < 0 || val.val > vf_table[numberoftable-1].volt)
-		{
-			goto out;
-		}
-		
-		/* change the value of the frequency of vf_table */
-        vf_table[i].freq = tmp;
-		
-		/* change the value of the voltage of vf_table */
-        vf_table[i].volt = val.val;
-    }
-	
-out:
-	if(i == 0)
-	{
-		dvfs_max_level = i;
-	}
-	else
-	{
-    	dvfs_max_level = i - 1;
-	}
-	
-	if(dvfs_level > dvfs_max_level)
-	{
-		dvfs_level = dvfs_max_level;
-	}
-	
-	type = script_get_item("gpu_dvfs_table", "G_normal_level", &val);
-	if (SCIRPT_ITEM_VALUE_TYPE_INT != type)
-    {
-        return;
-    }
-	if(val.val >= 0 || val.val <= dvfs_max_level)
-	{
-		normal_level = val.val;
-		dvfs_level = normal_level;
-	}
-}
 
 static PVRSRV_ERROR PowerLockWrap(SYS_SPECIFIC_DATA *psSysSpecData, IMG_BOOL bTryLock)
 {
@@ -485,8 +141,7 @@ IMG_VOID SysGetSGXTimingInformation(SGX_TIMING_INFORMATION *psTimingInfo)
 #if !defined(NO_HARDWARE)
 	PVR_ASSERT(atomic_read(&gpsSysSpecificData->sSGXClocksEnabled) != 0);
 #endif
-	psTimingInfo->ui32CoreClockSpeed = (IMG_UINT32)clk_get_rate(gpu_core_clk);
-	
+	psTimingInfo->ui32CoreClockSpeed = SYS_SGX_CLOCK_SPEED;
 	psTimingInfo->ui32HWRecoveryFreq = SYS_SGX_HWRECOVERY_TIMEOUT_FREQ;
 	psTimingInfo->ui32uKernelFreq = SYS_SGX_PDS_TIMER_FREQ;
 #if defined(SUPPORT_ACTIVE_POWER_MANAGEMENT)
@@ -509,26 +164,59 @@ IMG_VOID SysGetSGXTimingInformation(SGX_TIMING_INFORMATION *psTimingInfo)
 ******************************************************************************/
 PVRSRV_ERROR EnableSGXClocks(SYS_DATA *psSysData, IMG_BOOL bNoDev)
 {
-	if(gpu_core_clk->enable_count == 0)
+	SYS_SPECIFIC_DATA *psSysSpecData = (SYS_SPECIFIC_DATA *) psSysData->pvSysSpecificData;
+
+	/* SGX clocks already enabled? */
+	if (atomic_read(&psSysSpecData->sSGXClocksEnabled) != 0)
 	{
-		if (clk_prepare_enable(gpu_pll_clk))
-		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to enable gpu pll clock!"));
-		}
-		if (clk_prepare_enable(gpu_core_clk))
-		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to enable gpu core clock!"));
-		}
-		if (clk_prepare_enable(gpu_mem_clk))
-		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to enable gpu mem clock!"));
-		}
-		if (clk_prepare_enable(gpu_hyd_clk))
-		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to enable gpu hyd clock!"));
-		}
+		return PVRSRV_OK;
+	}
+
+	PVR_DPF((PVR_DBG_MESSAGE, "EnableSGXClocks: Enabling SGX Clocks"));
+
+	/*open clock*/
+	if (clk_prepare_enable(h_gpu_hydpll))
+	{
+		printk(KERN_ALERT "GPU h_gpu_hydpll enable failed\n");
 	}
 	
+	if (clk_prepare_enable(h_gpu_coreclk))
+	{
+		printk(KERN_ALERT "GPU core clk enable failed\n");
+	}
+	if (clk_prepare_enable(h_gpu_memclk))
+	{
+		printk(KERN_ALERT "GPU mem clk enable failed\n");
+	}
+	if (clk_prepare_enable(h_gpu_hydclk))
+	{
+		printk(KERN_ALERT "GPU hyd clk enable failed\n");
+	}
+	
+	/*
+	 * pm_runtime_get_sync will fail if called as part of device
+	 * unregistration.
+	 */
+	if (!bNoDev)
+	{
+		/*
+		 * pm_runtime_get_sync returns 1 after the module has
+		 * been reloaded.
+		 */
+		int res = pm_runtime_get_sync(&gpsPVRLDMDev->dev);
+		if (res < 0)
+		{
+			PVR_DPF((PVR_DBG_ERROR, "EnableSGXClocks: pm_runtime_get_sync failed (%d)", -res));
+			return PVRSRV_ERROR_UNABLE_TO_ENABLE_CLOCK;
+		}
+		psSysSpecData->bPMRuntimeGetSync = IMG_TRUE;
+	}
+
+	SysEnableSGXInterrupts(psSysData);
+
+	/* Indicate that the SGX clocks are enabled */
+	atomic_set(&psSysSpecData->sSGXClocksEnabled, 1);
+
 	return PVRSRV_OK;
 }
 
@@ -544,14 +232,63 @@ PVRSRV_ERROR EnableSGXClocks(SYS_DATA *psSysData, IMG_BOOL bNoDev)
 
 ******************************************************************************/
 IMG_VOID DisableSGXClocks(SYS_DATA *psSysData)
-{	
-	if(gpu_core_clk->enable_count == 1)
+{
+#if !defined(NO_HARDWARE)
+	SYS_SPECIFIC_DATA *psSysSpecData = (SYS_SPECIFIC_DATA *) psSysData->pvSysSpecificData;
+
+	/* SGX clocks already disabled? */
+	if (atomic_read(&psSysSpecData->sSGXClocksEnabled) == 0)
 	{
-		clk_disable_unprepare(gpu_hyd_clk);
-		clk_disable_unprepare(gpu_mem_clk);	
-		clk_disable_unprepare(gpu_core_clk);
-		clk_disable_unprepare(gpu_pll_clk);
+		return;
 	}
+
+	PVR_DPF((PVR_DBG_MESSAGE, "DisableSGXClocks: Disabling SGX Clocks"));
+
+	SysDisableSGXInterrupts(psSysData);
+	
+	/*close clock*/
+	if (NULL == h_gpu_memclk || IS_ERR(h_gpu_memclk))
+	{
+		printk(KERN_CRIT "GPU mem clk handle is invalid\n");
+	}
+	else
+	{
+		clk_disable_unprepare(h_gpu_memclk);
+	}
+
+	if (NULL == h_gpu_coreclk || IS_ERR(h_gpu_coreclk))
+	{
+		printk(KERN_CRIT "GPU core clk handle is invalid\n");
+	}
+	else
+	{
+		clk_disable_unprepare(h_gpu_coreclk);
+	}
+	if (NULL == h_gpu_hydclk || IS_ERR(h_gpu_hydclk))
+	{
+		printk(KERN_CRIT "GPU hyd clk handle is invalid\n");
+	}
+	else
+	{
+		clk_disable_unprepare(h_gpu_hydclk);
+	}
+	
+	if (psSysSpecData->bPMRuntimeGetSync)
+	{
+		int res = pm_runtime_put_sync(&gpsPVRLDMDev->dev);
+		if (res < 0)
+		{
+			PVR_DPF((PVR_DBG_ERROR, "DisableSGXClocks: pm_runtime_put_sync failed (%d)", -res));
+		}
+		psSysSpecData->bPMRuntimeGetSync = IMG_FALSE;
+	}
+
+	/* Indicate that the SGX clocks are disabled */
+	atomic_set(&psSysSpecData->sSGXClocksEnabled, 0);
+
+#else	/* !defined(NO_HARDWARE) */
+	PVR_UNREFERENCED_PARAMETER(psSysData);
+#endif	/* !defined(NO_HARDWARE) */
 }
 
 /*!
@@ -567,84 +304,137 @@ IMG_VOID DisableSGXClocks(SYS_DATA *psSysData)
 PVRSRV_ERROR EnableSystemClocks(SYS_DATA *psSysData)
 {
 	SYS_SPECIFIC_DATA *psSysSpecData = (SYS_SPECIFIC_DATA *) psSysData->pvSysSpecificData;
+	int pwr_reg;
 
+	PVR_TRACE(("EnableSystemClocks: Enabling System Clocks"));
 	if (!psSysSpecData->bSysClocksOneTimeInit)
 	{
-		sgx_regulator = regulator_get(NULL,"vdd-gpu");
-		if (IS_ERR(sgx_regulator))
+		/* GPU power setup */
+		gpu_power = regulator_get(NULL, "axp22_dcdc2"); // vdd-gpu?
+		if (IS_ERR(gpu_power))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to get sgx regulator!"));
+			printk(KERN_ALERT "GPU power setup failed\n");
+			gpu_power = NULL;
+			return PVRSRV_OK; 
 		}
-        
-		ParseSysconfigFex();
 		
 		/* Set up PLL and clock parents */	
-		gpu_pll_clk = clk_get(NULL,PLL_GPU_CLK);
-		if (!gpu_pll_clk || IS_ERR(gpu_pll_clk))
+		h_gpu_hydpll = clk_get(NULL, PLL8_CLK); // PLL_GPU_CLK
+		if (!h_gpu_hydpll || IS_ERR(h_gpu_hydpll))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to get gpu pll handle!"));
+			printk(KERN_ALERT "clk_get of sys_pll8 failed\n");
 		}
-		gpu_core_clk = clk_get(NULL, GPUCORE_CLK);
-		if (!gpu_core_clk || IS_ERR(gpu_core_clk))
+		h_gpu_corepll = clk_get(NULL, PLL9_CLK);
+		if (!h_gpu_corepll || IS_ERR(h_gpu_corepll))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to get gpu core clock handle!"));
+			printk(KERN_ALERT "clk_get of sys_pll9 failed\n");
 		}
-		gpu_mem_clk = clk_get(NULL, GPUMEM_CLK);
-		if (!gpu_mem_clk || IS_ERR(gpu_mem_clk))
+
+		h_gpu_coreclk = clk_get(NULL, GPUCORE_CLK);
+		if (!h_gpu_coreclk || IS_ERR(h_gpu_coreclk))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to get gpu mem clock handle!"));
+			printk(KERN_ALERT "clk_get of mod_gpucore failed\n");
 		}
-		gpu_hyd_clk = clk_get(NULL, GPUHYD_CLK);
-		if (!gpu_hyd_clk || IS_ERR(gpu_hyd_clk))
+
+		h_gpu_memclk = clk_get(NULL, GPUMEM_CLK);
+		if (!h_gpu_memclk || IS_ERR(h_gpu_memclk))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to get gpu hyd clock handle!"));
+			printk(KERN_ALERT "clk_get of mod_gpumem failed\n");
+		}
+		h_gpu_hydclk = clk_get(NULL, GPUHYD_CLK);
+		if (!h_gpu_hydclk || IS_ERR(h_gpu_hydclk))
+		{
+			printk(KERN_ALERT "clk_get of mod_gouhyd failed\n");
+		}
+
+		/* Set clock parents */
+		if (clk_set_parent(h_gpu_hydclk, h_gpu_hydpll))
+		{
+			printk(KERN_ALERT "clk_set of gpu_hydclk parent to gpu_hydpll failed\n");
+		}
+		if (clk_set_parent(h_gpu_memclk, h_gpu_hydpll))
+		{
+			printk(KERN_ALERT "clk_set of gpu_memclk parent to gpu_hydpll failed\n");
+		}
+		if (clk_set_parent(h_gpu_coreclk, h_gpu_hydpll))
+		{
+			printk(KERN_ALERT "clk_set of gpu_coreclk parent to gpu_corepll failed\n");
 		}
 		
-		if (clk_set_parent(gpu_core_clk, gpu_pll_clk))
+				/* Set PLL frequency*/
+		if (clk_set_rate(h_gpu_hydpll, SYS_SGX_HYD_CLOCK_SPEED))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to set the parent of gpu core clock!"));
+			printk(KERN_ALERT "clk_set of gpu_hydpll rate %d failed\n", SYS_SGX_HYD_CLOCK_SPEED);
 		}
-		if (clk_set_parent(gpu_mem_clk, gpu_pll_clk))
+		if (clk_set_rate(h_gpu_corepll, SYS_SGX_CORE_CLOCK_SPEED))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to set the parent of gpu mem clock!"));
-		}
-		if (clk_set_parent(gpu_hyd_clk, gpu_pll_clk))
-		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to set the parent of gpu hyd clock!"));
+			printk(KERN_ALERT "clk_set of gpu_corepll rate %d failed\n", SYS_SGX_CORE_CLOCK_SPEED);
 		}
 		
-		/* set the frequency of gpu pll */
-		SetGpuFreq(dvfs_level);
+			//clock prepare
+		if (clk_prepare(h_gpu_hydpll))
+		{
+			printk(KERN_ALERT "clk_prepare of h_gpu_pll output failed\n");
+		}
+		if (clk_prepare(h_gpu_memclk))
+		{
+			printk(KERN_ALERT "clk_prepare of h_gpu_memclk output failed\n");
+		}
+		if (clk_prepare(h_gpu_hydclk))
+		{
+			printk(KERN_ALERT "clk_prepare of h_gpu_hydclk output failed\n");
+		}
+		if (clk_prepare(h_gpu_coreclk))
+		{
+			printk(KERN_ALERT "clk_prepare of h_gpu_coreclk output failed\n");
+		}
 	
+			
 		mutex_init(&psSysSpecData->sPowerLock);
+
+		atomic_set(&psSysSpecData->sSGXClocksEnabled, 0);
+
 		psSysSpecData->bSysClocksOneTimeInit = IMG_TRUE;
-		
-		mutex_init(&dvfs_lock);
-		
-	#ifdef CONFIG_CPU_BUDGET_THERMAL
-		register_budget_cooling_notifier(&sgx_throttle_notifier);
-	#endif /* CONFIG_CPU_BUDGET_THERMAL */
-
-		sysfs_create_group(&gpsPVRLDMDev->dev.kobj, &gpu_attribute_group);
 	}
 
-	/* enable gpu power */
-	if (regulator_enable(sgx_regulator))
+
+
+	/* Enable GPU power */
+	printk(KERN_DEBUG "GPU power on\n");
+	if (regulator_enable(gpu_power))
 	{
-		PVR_DPF((PVR_DBG_ERROR, "Failed to enable gpu power!"));
-	}
+		printk(KERN_ALERT "GPU power on failed\n");
+	}	
+	/* GPU power off gating as invalid */
+	pwr_reg = readl(IO_ADDRESS(SUNXI_R_PRCM_PBASE) + 0x118);
+	pwr_reg &= (~(0x1));
+	writel(pwr_reg, IO_ADDRESS(SUNXI_R_PRCM_PBASE) + 0x118);
+	OSSleepms(2);
 	
-	/* delay for gpu power stability */
-	mdelay(2);
-	
-	/* set gpu power off gating invalid */
-	sunxi_smc_writel(0, SUNXI_R_PRCM_VBASE + 0x118);
-	
-	if(sunxi_periph_reset_deassert(gpu_hyd_clk))
+	if (sunxi_periph_reset_deassert(h_gpu_coreclk))
 	{
-		PVR_DPF((PVR_DBG_ERROR, "Failed to release gpu reset!"));
+		printk(KERN_ALERT "NRESET of gpu_clk failed\n");
 	}
-	
+	/* Enable PLL, in EnableSystemClocks temporarily 
+	if (clk_enable(h_gpu_hydpll))
+	{
+		printk(KERN_ALERT "enable of gpu_hydpll output failed\n");
+	}
+	if (clk_enable(h_gpu_corepll))
+	{
+		printk(KERN_ALERT "enable of gpu_corepll output failed\n");
+	}
+	*/
+		/* print gpu init information */
+	printk(KERN_INFO "=========================================================\n");
+	printk(KERN_INFO "               GPU Init Information                      \n");
+	printk(KERN_INFO "gpu voltage         : %d mV\n", regulator_get_voltage(gpu_power)/1000);
+	printk(KERN_INFO "pll9 clock frequency: %ld MHz\n", clk_get_rate(h_gpu_corepll)/1000000);
+	printk(KERN_INFO "core clock frequency: %ld MHz\n", clk_get_rate(h_gpu_coreclk)/1000000);
+	printk(KERN_INFO "mem clock frequency : %ld MHz\n", clk_get_rate(h_gpu_memclk)/1000000);
+	printk(KERN_INFO "hyd clock frequency : %ld MHz\n", clk_get_rate(h_gpu_hydclk)/1000000);
+	printk(KERN_INFO "=========================================================\n");
+
 	return PVRSRV_OK;
 }
 
@@ -660,31 +450,66 @@ PVRSRV_ERROR EnableSystemClocks(SYS_DATA *psSysData)
 ******************************************************************************/
 IMG_VOID DisableSystemClocks(SYS_DATA *psSysData)
 {
-	if(sunxi_periph_reset_assert(gpu_hyd_clk))
-	{
-		PVR_DPF((PVR_DBG_ERROR, "Failed to pull down gpu reset!"));
-	}
-
-	/* set gpu power off gating valid */
-	sunxi_smc_writel(1, SUNXI_R_PRCM_VBASE + 0x118);
+	int pwr_reg;
 	
-	/* disable gpu power */
-	if (regulator_is_enabled(sgx_regulator))
+	PVR_TRACE(("DisableSystemClocks: Disabling System Clocks"));
+	/*
+	 * Always disable the SGX clocks when the system clocks are disabled.
+	 * This saves having to make an explicit call to DisableSGXClocks if
+	 * active power management is enabled.
+	 */
+	DisableSGXClocks(psSysData);
+	
+	if (sunxi_periph_reset_deassert(h_gpu_coreclk))
 	{
-		if (regulator_disable(sgx_regulator))
+		printk(KERN_CRIT "RESET of gpu_coreclk failed\n");
+	}
+	
+	/* Disable PLL, in DisableSystemClocks temporarily */
+	if (NULL == h_gpu_hydpll || IS_ERR(h_gpu_hydpll))
+	{
+		printk(KERN_ALERT "gpu_hydpll handle is invalid\n");
+	}
+	else
+	{
+		clk_disable(h_gpu_hydpll);
+	}
+	if (NULL == h_gpu_corepll || IS_ERR(h_gpu_corepll))
+	{
+		printk(KERN_ALERT "gpu_corepll is invalid\n");
+	}
+	else
+	{
+		clk_disable(h_gpu_corepll);
+	}
+	
+	/* GPU power off gating valid */
+	pwr_reg = readl(IO_ADDRESS(SUNXI_R_PRCM_PBASE) + 0x118);
+	pwr_reg |= 0x1;
+	writel(pwr_reg, IO_ADDRESS(SUNXI_R_PRCM_PBASE) + 0x118);
+	
+	/* GPU power off */
+	printk(KERN_DEBUG "GPU power off\n");
+	if (regulator_is_enabled(gpu_power))
+	{
+		if (regulator_disable(gpu_power))
 		{
-			PVR_DPF((PVR_DBG_ERROR, "Failed to disable gpu power!"));
+			printk(KERN_ALERT "GPU power off failed\n");
 		}
 	}
 }
 
 PVRSRV_ERROR SysPMRuntimeRegister(void)
 {
+	pm_runtime_enable(&gpsPVRLDMDev->dev);
+
 	return PVRSRV_OK;
 }
 
 PVRSRV_ERROR SysPMRuntimeUnregister(void)
 {
+	pm_runtime_disable(&gpsPVRLDMDev->dev);
+
 	return PVRSRV_OK;
 }
 

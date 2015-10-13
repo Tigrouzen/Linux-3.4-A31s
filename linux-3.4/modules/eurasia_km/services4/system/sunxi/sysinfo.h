@@ -48,7 +48,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  * need to wait longer for the hardware if a flush of the swap chain is
  * required.
  */
-#define MAX_HW_TIME_US				(5000000)
+#define MAX_HW_TIME_US				(1000000)
 #define WAIT_TRY_COUNT				(20000)
 
 

@@ -1167,7 +1167,7 @@ unlock_and_return:
 
     LinuxUnLockMutex(&g_sMMapMutex);
 
-    if(psFlushMemArea && uiFlushSize)
+    if(psFlushMemArea)
     {
         OSInvalidateCPUCacheRangeKM(psFlushMemArea, uiByteOffset, pvBase,
 									uiFlushSize);
