@@ -442,13 +442,13 @@ static u32 ohci_irq_no[2] 			= {0, SUNXI_IRQ_USBOHCI0};
 #endif
 
 #if defined (CONFIG_ARCH_SUN8IW1)
-static char* usbc_name[4] 			= {"usbc0", "usbc1", "usb2", "usb3"};
+static char* usbc_name[3] 			= {"usbc0", "usbc1", "usb2"};
 static char* usbc_ahb_ehci_name[3]  = {"", USBEHCI0_CLK, USBEHCI1_CLK};
-static char* usbc_ahb_ohci_name[4]  = {"", USBOHCI0_CLK, USBOHCI1_CLK, USBOHCI3_CLK};
+static char* usbc_ahb_ohci_name[3]  = {"", USBOHCI0_CLK, USBOHCI1_CLK};
 static char* usbc_phy_name[3]	= {"", USBPHY1_CLK, USBPHY2_CLK};
 static u32 usbc_base[4] 			= {(u32 __force)SUNXI_USB_OTG_VBASE, (u32 __force)SUNXI_USB_HCI0_VBASE, (u32 __force)SUNXI_USB_HCI1_VBASE, (u32 __force)SUNXI_USB_OHCI2_VBASE};
-static u32 ehci_irq_no[3] 			= {0, SUNXI_IRQ_USBEHCI0, SUNXI_IRQ_USBEHCI1};
-static u32 ohci_irq_no[4] 			= {0, SUNXI_IRQ_USBOHCI0, SUNXI_IRQ_USBOHCI1, SUNXI_IRQ_USBOHCI2};
+static u32 ehci_irq_no[2] 			= {0, SUNXI_IRQ_USBEHCI0};
+static u32 ohci_irq_no[2] 			= {0, SUNXI_IRQ_USBOHCI0};
 
 #endif
 

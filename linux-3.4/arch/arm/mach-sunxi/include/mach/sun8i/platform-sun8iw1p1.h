@@ -178,6 +178,10 @@
 #define SUNXI_USB_EHCI1_VBASE                          0xf1c1b000
 #define SUNXI_USB_OHCI1_VBASE                          0xf1c1b000
 #define SUNXI_USB_OHCI2_VBASE                          0xf1c1c000
+
+#define SUNXI_USB_HCI0_VBASE             IO_ADDRESS(SUNXI_USB_OHCI0_PBASE     )
+#define SUNXI_USB_HCI1_VBASE             IO_ADDRESS(SUNXI_USB_OHCI1_PBASE     )
+
 #define SUNXI_TZASC_VBASE                              0xf1c1e000
 #define SUNXI_CCM_VBASE                                0xf1c20000
 #define SUNXI_PIO_VBASE                                0xf1c20800

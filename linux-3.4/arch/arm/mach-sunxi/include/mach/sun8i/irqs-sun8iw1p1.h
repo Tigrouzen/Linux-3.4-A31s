@@ -98,6 +98,10 @@
 
 #define SUNXI_IRQ_USB_OHCI2            (SUNXI_GIC_START + 77)  /* USB_OHCI2   */
 
+#define SUNXI_IRQ_USBEHCI0 SUNXI_IRQ_USB_EHCI0
+#define SUNXI_IRQ_USBOHCI0 SUNXI_IRQ_USB_OHCI0
+#define SUNXI_IRQ_USBOTG   SUNXI_IRQ_USB_OTG
+
 #define SUNXI_IRQ_SS                   (SUNXI_GIC_START + 80)  /* SS          */
 #define SUNXI_IRQ_TS                   (SUNXI_GIC_START + 81)  /* TS          */
 #define SUNXI_IRQ_GMAC                 (SUNXI_GIC_START + 82)  /* GMAC        */
